@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+# The corpus is downloaded by ingest.py and is not redistributed here.
+data/raw/
+data/articles.jsonl
+data/meta.json
+data/vectors-*.npy
+results-*.txt

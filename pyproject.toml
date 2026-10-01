@@ -1,0 +1,13 @@
+[project]
+name = "consultor-tributario"
+version = "0.1.0"
+description = "Cited question answering over Colombia's Estatuto Tributario: ingestion, hybrid retrieval, reranking, hallucination checks"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.11",
+    "fastembed>=0.8",
+    "numpy>=2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
