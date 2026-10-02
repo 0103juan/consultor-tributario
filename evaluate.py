@@ -110,7 +110,8 @@ def generation_eval(client, index: Index, golden: list[dict]) -> dict[str, float
 
 
 if __name__ == "__main__":
-    golden = [json.loads(line) for line in GOLDEN.read_text(encoding="utf-8").splitlines()]
+    sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
+    golden =[json.loads(line) for line in GOLDEN.read_text(encoding="utf-8").splitlines()]
     index = Index.load()
     if "--generation" in sys.argv:
         import anthropic

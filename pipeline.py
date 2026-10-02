@@ -137,7 +137,8 @@ def answer(client, index: Index, question: str, history: str = "") -> Result:
 
 
 if __name__ == "__main__":
-    meta = json.loads((DATA / "meta.json").read_text(encoding="utf-8"))
+    sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
+    meta =json.loads((DATA / "meta.json").read_text(encoding="utf-8"))
     result = answer(anthropic.Anthropic(), Index.load(), " ".join(sys.argv[1:]))
     print(result.answer, "\n")
     for source in result.sources:
