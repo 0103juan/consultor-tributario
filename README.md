@@ -153,3 +153,7 @@ evaluate.py        retrieval ablation and end-to-end evaluation with token and c
 data/golden.jsonl  questions, the article and evidence quote for each, and reference answers
 test_consultor.py  parser, chunking and pipeline tests
 ```
+
+## License
+
+[MIT](LICENSE) for the code. The tax code's text is not in this repository, and the reranker model carries its own licence (see Limits).
