@@ -1,5 +1,7 @@
 # consultor-tributario
 
+[![CI](https://github.com/0103juan/consultor-tributario/actions/workflows/ci.yml/badge.svg)](https://github.com/0103juan/consultor-tributario/actions/workflows/ci.yml)
+
 Question answering over Colombia's **Estatuto Tributario** (the national tax code) that cites the article behind every statement, refuses when the text does not hold the answer, and is measured against a set of questions whose answers are quoted from the law.
 
 It answers in Spanish; this README is in English.
