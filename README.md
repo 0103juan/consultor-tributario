@@ -78,7 +78,22 @@ What I take from this:
 
 ### End to end
 
-One real question so far, on 1 October 2026 with `claude-sonnet-5-5`:
+`uv run python evaluate.py --generation`, run on 2 October 2026 with `claude-sonnet-5-5` over the 33 questions:
+
+| Metric | Result |
+|---|---|
+| Answer correct (LLM-graded against the reference; for the out-of-scope question, correct means abstaining) | 29 of 33 (87.9%) |
+| Groundedness (claims supported by the retrieved passages, according to the judge) | 100% |
+| Evidence chunk retrieved, after rewriting | 26 of 32 (81.2%) |
+| Evidence chunk cited in the answer | 26 of 32 (81.2%) |
+| Cost | $0.66 for the run, $0.02 per question; 127 model calls, 212,000 input and 23,682 output tokens |
+
+- **The four misses are all the same kind: it said "No lo sé con base en el Estatuto Tributario".** In each of them the evidence chunk was not among the five passages, and the system declined instead of answering from memory. No answer contained a claim the judge found unsupported.
+- **The misses are retrieval misses.** "¿Cuándo prescribe una deuda con la DIAN?" brought back article 814 (payment plans) and not 817 (the five-year limit). "¿Cuál es la multa más baja?" and its follow-up "¿Hay un mínimo?" never reached article 639, which sets the minimum penalty. The question about deductible expenses got articles 77, 105 and 144 but not 107.
+- **Rewriting helped less than I expected.** On raw questions the evidence was in the top five for 23 of 30; with rewriting it is 26 of 32, a set that adds the two follow-ups. Two questions were graded correct without the evidence chunk, from other passages.
+- **Whenever the evidence was retrieved, it was cited**, and the answer was graded correct.
+
+One of the answers, as the CLI prints it:
 
 ```
 $ uv run python pipeline.py "¿Cuál es la tarifa general de renta para sociedades?"
@@ -96,7 +111,7 @@ del 40% (parágrafo 2) [1].
 Texto según la compilación del Senado actualizada al 15 de septiembre de 2026. Esto no es asesoría tributaria.
 ```
 
-That is one answer, cited and with every claim supported according to the judge. It is not a measurement. The evaluation over the 30 questions has not been run yet: `uv run python evaluate.py --generation` (needs `ANTHROPIC_API_KEY`) reports whether the evidence was retrieved after rewriting, whether the answer cites it, LLM-graded correctness, groundedness, token usage and cost. Until then, the only measured evidence here is about retrieval.
+The next thing to fix is therefore retrieval for questions asked in everyday words ("multa", "deuda", "gasto"), not generation.
 
 ## Run it
 
@@ -124,6 +139,7 @@ uv run python pipeline.py "¿Qué porcentaje del salario es renta exenta?"   # n
 - 19 tables and formulas are images and cannot be answered from.
 - The reference answers were written by a software engineer reading the statute, not by a tax lawyer. The evidence quotes guarantee that each one is anchored in the text, not that the interpretation is complete.
 - Thirty questions is a development set. One question moves hit@5 by 3.3 points, and I chose the pool size and the reranker while looking at it.
+- The end-to-end run is one run, and both correctness and groundedness are graded by the same model that wrote the answers. I read the four failures; I did not re-grade the 29 passes by hand.
 - Book, title and chapter headings are discarded, so a chunk does not know whether it sits in the income tax book or the VAT book.
 - Reranking 50 candidates takes about ten seconds on a CPU.
 
