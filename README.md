@@ -78,7 +78,25 @@ What I take from this:
 
 ### End to end
 
-Not run yet. `uv run python evaluate.py --generation` (needs `ANTHROPIC_API_KEY`) reports whether the evidence was retrieved after rewriting, whether the answer cites it, LLM-graded correctness, groundedness, token usage and cost. Until it has been run, there is no evidence here about answer quality, only about retrieval.
+One real question so far, on 1 October 2026 with `claude-sonnet-5-5`:
+
+```
+$ uv run python pipeline.py "¿Cuál es la tarifa general de renta para sociedades?"
+Según el artículo 240 del Estatuto Tributario, modificado por el artículo 10 de la Ley 2277 de 2022, la tarifa
+general del impuesto sobre la renta para las sociedades nacionales y sus asimiladas, los establecimientos
+permanentes de entidades del exterior y las personas jurídicas extranjeras con o sin residencia en el país es
+del 35% [1]. El mismo artículo prevé tarifas distintas en casos particulares; por ejemplo, las instituciones
+financieras y otras entidades del sector liquidan cinco puntos adicionales durante 2023 a 2027, para un total
+del 40% (parágrafo 2) [1].
+
+  fuente: Artículo 240. TARIFA GENERAL PARA PERSONAS JURÍDICAS
+          http://www.secretariasenado.gov.co/senado/basedoc/estatuto_tributario_pr010.html#240
+  respaldo de las afirmaciones: 100%
+
+Texto según la compilación del Senado actualizada al 15 de septiembre de 2026. Esto no es asesoría tributaria.
+```
+
+That is one answer, cited and with every claim supported according to the judge. It is not a measurement. The evaluation over the 30 questions has not been run yet: `uv run python evaluate.py --generation` (needs `ANTHROPIC_API_KEY`) reports whether the evidence was retrieved after rewriting, whether the answer cites it, LLM-graded correctness, groundedness, token usage and cost. Until then, the only measured evidence here is about retrieval.
 
 ## Run it
 
