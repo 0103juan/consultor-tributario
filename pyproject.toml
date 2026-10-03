@@ -6,8 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.11",
     "fastembed>=0.8",
+    "model-gateway",
     "numpy>=2",
 ]
 
 [dependency-groups]
 dev = ["pytest>=8"]
+
+[tool.uv.sources]
+model-gateway = { git = "https://github.com/0103juan/model-gateway", rev = "459a1508e47419eefdd5148942a8b6da90005a56" }

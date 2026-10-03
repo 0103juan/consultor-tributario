@@ -229,6 +229,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "fastembed" },
+    { name = "model-gateway" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
@@ -242,6 +243,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.11" },
     { name = "fastembed", specifier = ">=0.8" },
+    { name = "model-gateway", git = "https://github.com/0103juan/model-gateway?rev=459a1508e47419eefdd5148942a8b6da90005a56" },
     { name = "numpy", specifier = ">=2" },
 ]
 
@@ -716,6 +718,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/93/ce57c57a62c97c4bceaafb4df29e5bfdc827f3cea08b27444dcf3f55ecb6/mmh3-5.3.1-cp315-cp315t-win32.whl", hash = "sha256:2d76a78ab3af4be19d31840ca4f69b429e602e719d0b351f20d96304dbfb155e", size = 41534, upload-time = "2026-09-30T17:38:05.901Z" },
     { url = "https://files.pythonhosted.org/packages/63/ea/fee223d57ef44e743e71216805b873fd452b1de034a5a6bf78011deb7e9d/mmh3-5.3.1-cp315-cp315t-win_amd64.whl", hash = "sha256:4c061c1072dc2f32ef7e6a57a92da3de217dc47114b2857da31b34bc79ac795b", size = 43019, upload-time = "2026-09-30T17:38:07.154Z" },
     { url = "https://files.pythonhosted.org/packages/c2/6f/727d4255c2ca4957f87400852449f22f148b4278529701c67c6c65dadafb/mmh3-5.3.1-cp315-cp315t-win_arm64.whl", hash = "sha256:c90b3503675892e7496bec63e2e18e413798a062e5d54e6cf220c2bf0bb7fe69", size = 41323, upload-time = "2026-09-30T17:38:08.405Z" },
+]
+
+[[package]]
+name = "model-gateway"
+version = "0.0.0"
+source = { git = "https://github.com/0103juan/model-gateway?rev=459a1508e47419eefdd5148942a8b6da90005a56#459a1508e47419eefdd5148942a8b6da90005a56" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "pydantic" },
 ]
 
 [[package]]

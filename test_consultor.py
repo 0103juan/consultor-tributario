@@ -2,12 +2,15 @@
 
 import json
 
+import anthropic
+import httpx2
 import pytest
+from model_gateway import Gateway
 
 import ingest
 import pipeline
-from evaluate import plain
-from pipeline import ABSTAIN, Claim
+from evaluate import plain, spend
+from pipeline import ABSTAIN, JUDGE_SYSTEM, REWRITE_SYSTEM, Claim
 from retrieval import ARTICLE_REF, BM25, DATA, Chunk, chunk_article, rrf, tokenize
 
 PAGE = """<html><body><!--Inicio documento-->
@@ -117,6 +120,32 @@ def test_abstention_is_not_judged_and_cites_nothing(monkeypatch):
 
 
 @pytest.mark.skipif(not (DATA / "articles.jsonl").exists(), reason="run `python ingest.py` first")
+def test_each_stage_names_its_task_and_the_evaluation_reports_spend_per_task(tmp_path):
+    def api(request):  # the real SDK over a fake HTTP transport: the answer depends on the stage that asks
+        body = json.loads(request.content)
+        text = {REWRITE_SYSTEM: '{"standalone": "sanción mínima", "variants": []}',
+                JUDGE_SYSTEM: '{"claims": [{"text": "son 10 UVT", "supported": true}]}'}.get(
+                    body["system"], "La sanción mínima es de 10 UVT [1].")
+        return httpx2.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "model": body["model"], "stop_reason": "end_turn",
+            "stop_sequence": None, "content": [{"type": "text", "text": text}],
+            "usage": {"input_tokens": 1000, "output_tokens": 100}})
+
+    client = anthropic.Anthropic(api_key="test", http_client=anthropic.DefaultHttpxClient(
+        transport=httpx2.MockTransport(api)))
+    gateway = Gateway(client, routes={"rewrite": "small"}, cache=tmp_path)
+
+    result = pipeline.answer(gateway, FakeIndex(), "¿sanción mínima?")
+    pipeline.answer(gateway, FakeIndex(), "¿sanción mínima?")  # the same question again comes from the cache
+
+    assert result.answer == "La sanción mínima es de 10 UVT [1]." and result.groundedness == 1.0
+    assert [call["task"] for call in gateway.calls[:3]] == ["rewrite", "generate", "judge"]
+    assert [call["cached"] for call in gateway.calls] == [False] * 3 + [True] * 3
+    assert gateway.spent == pytest.approx((1000 * 1 + 100 * 5 + 2 * (1000 * 2 + 100 * 10)) / 1e6)
+    report = spend(gateway.calls).splitlines()
+    assert report[1].split() == ["rewrite", "2", "1", "2000", "200", "0.0015", "claude-haiku-4-5"]
+
+
 def test_every_golden_answer_is_backed_by_the_statute_text():
     """The reference answers are only as good as their evidence: each quote must exist in the article it names."""
     articles = {a["id"]: a for a in map(json.loads, (DATA / "articles.jsonl").read_text(encoding="utf-8").splitlines())}

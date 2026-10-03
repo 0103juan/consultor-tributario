@@ -118,10 +118,18 @@ The next thing to fix is therefore retrieval for questions asked in everyday wor
 ```bash
 uv sync
 uv run python ingest.py        # about a minute; writes data/articles.jsonl
-uv run pytest                  # 11 tests, no model downloads, no API key
+uv run pytest                  # 12 tests, no model downloads, no API key
 uv run python evaluate.py      # retrieval ablation; downloads about 2.4 GB of ONNX models once
 uv run python pipeline.py "¿Qué porcentaje del salario es renta exenta?"   # needs ANTHROPIC_API_KEY
+uv run python evaluate.py --generation           # end-to-end run; the one reported above cost $0.66
+uv run python evaluate.py --generation --small   # the same with the pipeline on Claude Haiku 4.5
 ```
+
+Model calls go through [model-gateway](https://github.com/0103juan/model-gateway). Each stage names its task
+(`rewrite`, `generate`, `judge`, and `grade` in the evaluation) and the gateway picks the model, records the cost
+of every call in `.gateway/ledger.jsonl`, serves a repeated request from `.gateway/cache`, and stops a run that
+spends more than a dollar. The results above were measured before this change, with the same model and
+prompts. The run on the small model has not been done yet.
 
 ## Design decisions
 
