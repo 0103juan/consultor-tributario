@@ -119,7 +119,6 @@ def test_abstention_is_not_judged_and_cites_nothing(monkeypatch):
     assert result.answer == ABSTAIN and result.sources == [] and result.groundedness == 1.0
 
 
-@pytest.mark.skipif(not (DATA / "articles.jsonl").exists(), reason="run `python ingest.py` first")
 def test_each_stage_names_its_task_and_the_evaluation_reports_spend_per_task(tmp_path):
     def api(request):  # the real SDK over a fake HTTP transport: the answer depends on the stage that asks
         body = json.loads(request.content)
@@ -146,6 +145,7 @@ def test_each_stage_names_its_task_and_the_evaluation_reports_spend_per_task(tmp
     assert report[1].split() == ["rewrite", "2", "1", "2000", "200", "0.0015", "claude-haiku-4-5"]
 
 
+@pytest.mark.skipif(not (DATA / "articles.jsonl").exists(), reason="run `python ingest.py` first")
 def test_every_golden_answer_is_backed_by_the_statute_text():
     """The reference answers are only as good as their evidence: each quote must exist in the article it names."""
     articles = {a["id"]: a for a in map(json.loads, (DATA / "articles.jsonl").read_text(encoding="utf-8").splitlines())}
