@@ -113,6 +113,39 @@ Texto según la compilación del Senado actualizada al 15 de septiembre de 2026.
 
 The next thing to fix is therefore retrieval for questions asked in everyday words ("multa", "deuda", "gasto"), not generation.
 
+### Small model against large model
+
+Run on 3 October 2026 through [model-gateway](https://github.com/0103juan/model-gateway), same 33 questions and prompts. "Large" runs rewrite, generate and judge on `claude-sonnet-5-5`; "small" runs the three on `claude-haiku-4-5` (`--small`). The grader is `claude-sonnet-5-5` in both, so both are marked by the same model.
+
+| | Large | Small |
+|---|---|---|
+| Answer correct | 28 of 33 (84.8%) | 27 of 33 (81.8%) |
+| Groundedness, according to each run's own judge | 100% | 96.0% |
+| Evidence chunk retrieved, after rewriting | 26 of 32 (81.2%) | 26 of 32 (81.2%) |
+| Evidence chunk cited | 26 of 32 (81.2%) | 26 of 32 (81.2%) |
+| Model calls | 126 | 137 |
+| Cost of the run | $0.66 | $0.27 |
+| Cost per question | $0.0199 | $0.0083 |
+
+Cost and latency per stage, from the gateway's ledger (the latency is the median of one call):
+
+| Stage | Large: calls, cost, median | Small: calls, cost, median |
+|---|---|---|
+| rewrite | 33, $0.096, 2.6 s | 33, $0.031, 1.7 s |
+| generate | 33, $0.248, 2.5 s | 36, $0.094, 1.9 s |
+| judge | 28, $0.272, 3.4 s | 36, $0.111, 2.2 s |
+| grade (Sonnet in both) | 32, $0.041, 1.7 s | 32, $0.038, 1.6 s |
+
+- **The pipeline costs 62% less on the small model**: $0.24 against $0.62 for the three stages. That is more than the list price alone explains (Haiku is half the price per token): the same 33 rewrite prompts counted 15,230 input tokens on Haiku and 19,594 on Sonnet, and Haiku wrote less output.
+- **One question apart, which is inside the noise.** The large configuration is the one that scored 29 of 33 on 2 October; a day later, with the same model, prompts and settings, it scored 28. Thirty-three questions cannot separate 28 from 27.
+- **Rewriting is the stage the numbers clear for the small model.** Its only job is to get the evidence retrieved, and both models got it for the same 26 of 32 questions, at a third of the cost and a second less per call.
+- **The small model does not follow the abstention contract.** The prompt asks for one exact sentence and nothing else when the passages do not hold the answer. In all six of its failures Haiku wrote that sentence and then a paragraph explaining what the passages do contain. The pipeline compares the answer to the exact sentence, so it did not recognise these as abstentions: it sent them to the judge (36 judge calls against 28), ran three corrective passes, and marked the out-of-scope question wrong although the model had declined it.
+- **The small judge turned negative sentences into positive claims.** In the two cases the run printed, the answer said the passages do *not* list the requirements, and the judge audited the claim "the passages list the requirements" and marked it unsupported. Part of the drop to 96.0% groundedness is the judge's mistake and not the generator's.
+- **One miss is a real generation miss.** For "¿Qué pasa si no mando la información exógena?" the small run retrieved article 651 and still abstained. The large run answered it.
+- **A repeated run is free in dollars, not in time.** The large run was repeated unchanged: 126 calls served from the gateway's cache, $0.00, the same results line by line. It still took nine minutes, all of it local reranking.
+
+What this supports is moving `rewrite` to the small model and keeping `generate` and `judge` on the large one until the abstention check and the judge are fixed. That mixed configuration has not been run, so every stage still defaults to the large model. The three follow-ups are issues [#2](https://github.com/0103juan/consultor-tributario/issues/2) (the abstention check), [#3](https://github.com/0103juan/consultor-tributario/issues/3) (the small judge) and [#4](https://github.com/0103juan/consultor-tributario/issues/4) (the mixed run).
+
 ## Run it
 
 ```bash
@@ -121,15 +154,15 @@ uv run python ingest.py        # about a minute; writes data/articles.jsonl
 uv run pytest                  # 12 tests, no model downloads, no API key
 uv run python evaluate.py      # retrieval ablation; downloads about 2.4 GB of ONNX models once
 uv run python pipeline.py "¿Qué porcentaje del salario es renta exenta?"   # needs ANTHROPIC_API_KEY
-uv run python evaluate.py --generation           # end-to-end run; the one reported above cost $0.66
-uv run python evaluate.py --generation --small   # the same with the pipeline on Claude Haiku 4.5
+uv run python evaluate.py --generation           # end-to-end run on the large model, $0.66
+uv run python evaluate.py --generation --small   # the same with the pipeline on Claude Haiku 4.5, $0.27
 ```
 
 Model calls go through [model-gateway](https://github.com/0103juan/model-gateway). Each stage names its task
 (`rewrite`, `generate`, `judge`, and `grade` in the evaluation) and the gateway picks the model, records the cost
 of every call in `.gateway/ledger.jsonl`, serves a repeated request from `.gateway/cache`, and stops a run that
-spends more than a dollar. The results above were measured before this change, with the same model and
-prompts. The run on the small model has not been done yet.
+spends more than a dollar. The run of 2 October was made before this change; the runs of 3 October went
+through the gateway.
 
 ## Design decisions
 
@@ -147,7 +180,7 @@ prompts. The run on the small model has not been done yet.
 - 19 tables and formulas are images and cannot be answered from.
 - The reference answers were written by a software engineer reading the statute, not by a tax lawyer. The evidence quotes guarantee that each one is anchored in the text, not that the interpretation is complete.
 - Thirty questions is a development set. One question moves hit@5 by 3.3 points, and I chose the pool size and the reranker while looking at it.
-- The end-to-end run is one run, and both correctness and groundedness are graded by the same model that wrote the answers. I read the four failures; I did not re-grade the 29 passes by hand.
+- Each configuration was run once or twice, and two runs of the same configuration differed by one question (29 and 28 of 33). A gap of one question between two models is not a finding. Correctness is graded by a model and groundedness by the run's own judge; I read the failures of each run and did not re-grade the passes by hand.
 - Book, title and chapter headings are discarded, so a chunk does not know whether it sits in the income tax book or the VAT book.
 - Reranking 50 candidates takes about ten seconds on a CPU.
 
