@@ -243,7 +243,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.11" },
     { name = "fastembed", specifier = ">=0.8" },
-    { name = "model-gateway", git = "https://github.com/0103juan/model-gateway?rev=459a1508e47419eefdd5148942a8b6da90005a56" },
+    { name = "model-gateway", git = "https://github.com/0103juan/model-gateway?tag=v0.1.0" },
     { name = "numpy", specifier = ">=2" },
 ]
 
@@ -722,8 +722,8 @@ wheels = [
 
 [[package]]
 name = "model-gateway"
-version = "0.0.0"
-source = { git = "https://github.com/0103juan/model-gateway?rev=459a1508e47419eefdd5148942a8b6da90005a56#459a1508e47419eefdd5148942a8b6da90005a56" }
+version = "0.1.0"
+source = { git = "https://github.com/0103juan/model-gateway?tag=v0.1.0#62d93b9a7d9176ec89d1dd26efabd4ffbd7f6b2c" }
 dependencies = [
     { name = "anthropic" },
     { name = "pydantic" },
