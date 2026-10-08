@@ -8,3 +8,4 @@ data/articles.jsonl
 data/meta.json
 data/vectors-*.npy
 results-*.txt
+.gateway/

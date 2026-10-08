@@ -9,13 +9,11 @@ import sys
 from dataclasses import dataclass
 
 import anthropic
+from model_gateway import Gateway
 from pydantic import BaseModel
 
 from retrieval import DATA, Chunk, Index
 
-# A safety decline is re-run server-side on Anthropic's recommended fallback model.
-LLM = {"model": "claude-sonnet-5-5", "max_tokens": 16000,
-       "betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
 ABSTAIN = "No lo sé con base en el Estatuto Tributario."
 
 REWRITE_SYSTEM = """Preparas consultas de búsqueda sobre el Estatuto Tributario de Colombia.
@@ -85,9 +83,10 @@ def _context(chunks: list[Chunk]) -> str:
     return "\n\n".join(f"[{n}] {chunk.text}" for n, chunk in enumerate(chunks, 1))
 
 
-def rewrite(client, question: str, history: str = "") -> list[str]:
-    response = client.beta.messages.parse(
-        **LLM, system=REWRITE_SYSTEM, output_config={"effort": "low"}, output_format=Rewrite,
+# Every model call names its task; the gateway decides which model runs it and records what it cost.
+def rewrite(gateway, question: str, history: str = "") -> list[str]:
+    response = gateway.parse(
+        task="rewrite", system=REWRITE_SYSTEM, output_config={"effort": "low"}, output_format=Rewrite,
         messages=[{"role": "user",
                    "content": f"<historial>\n{history}\n</historial>\n\n<pregunta>\n{question}\n</pregunta>"}])
     parsed = response.parsed_output
@@ -96,9 +95,9 @@ def rewrite(client, question: str, history: str = "") -> list[str]:
     return [parsed.standalone, *parsed.variants[:2]]
 
 
-def generate(client, question: str, chunks: list[Chunk], correction: str = "") -> str:
-    response = client.beta.messages.create(
-        **LLM, system=GENERATE_SYSTEM, output_config={"effort": "low"},
+def generate(gateway, question: str, chunks: list[Chunk], correction: str = "") -> str:
+    response = gateway.create(
+        task="generate", system=GENERATE_SYSTEM, output_config={"effort": "low"},
         messages=[{"role": "user", "content":
                    f"<contexto>\n{_context(chunks)}\n</contexto>\n\n<pregunta>\n{question}\n</pregunta>{correction}"}])
     if response.stop_reason == "refusal":
@@ -106,9 +105,9 @@ def generate(client, question: str, chunks: list[Chunk], correction: str = "") -
     return "".join(block.text for block in response.content if block.type == "text").strip()
 
 
-def judge(client, answer: str, chunks: list[Chunk]) -> list[Claim]:
-    response = client.beta.messages.parse(
-        **LLM, system=JUDGE_SYSTEM, output_config={"effort": "medium"}, output_format=Verdict,
+def judge(gateway, answer: str, chunks: list[Chunk]) -> list[Claim]:
+    response = gateway.parse(
+        task="judge", system=JUDGE_SYSTEM, output_config={"effort": "medium"}, output_format=Verdict,
         messages=[{"role": "user", "content":
                    f"<pasajes>\n{_context(chunks)}\n</pasajes>\n\n<respuesta>\n{answer}\n</respuesta>"}])
     if response.parsed_output is None:  # fail closed: an answer we could not verify is not grounded
@@ -116,13 +115,13 @@ def judge(client, answer: str, chunks: list[Chunk]) -> list[Claim]:
     return response.parsed_output.claims
 
 
-def answer(client, index: Index, question: str, history: str = "") -> Result:
-    queries = rewrite(client, question, history)
+def answer(gateway, index: Index, question: str, history: str = "") -> Result:
+    queries = rewrite(gateway, question, history)
     chunks = index.search(queries)
 
     def attempt(correction: str = "") -> tuple[str, list[Claim]]:
-        text = generate(client, queries[0], chunks, correction)
-        return text, ([] if text == ABSTAIN else judge(client, text, chunks))
+        text = generate(gateway, queries[0], chunks, correction)
+        return text, ([] if text == ABSTAIN else judge(gateway, text, chunks))
 
     text, claims = attempt()
     unsupported = [c.text for c in claims if not c.supported]
@@ -139,7 +138,7 @@ def answer(client, index: Index, question: str, history: str = "") -> Result:
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
     meta =json.loads((DATA / "meta.json").read_text(encoding="utf-8"))
-    result = answer(anthropic.Anthropic(), Index.load(), " ".join(sys.argv[1:]))
+    result = answer(Gateway(anthropic.Anthropic()), Index.load(), " ".join(sys.argv[1:]))
     print(result.answer, "\n")
     for source in result.sources:
         print(f"  fuente: {source.title[:80]}\n          {source.url}")
