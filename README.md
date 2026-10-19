@@ -2,7 +2,17 @@
 
 [![CI](https://github.com/0103juan/consultor-tributario/actions/workflows/ci.yml/badge.svg)](https://github.com/0103juan/consultor-tributario/actions/workflows/ci.yml)
 
-Question answering over Colombia's **Estatuto Tributario** (the national tax code) that cites the article behind every statement, refuses when the text does not hold the answer, and is measured against a set of questions whose answers are quoted from the law.
+**A legal domain, in Spanish, done properly: the hard part is the law, not the pipeline.** Question answering over Colombia's **Estatuto Tributario** (the national tax code) that cites the article behind every statement, refuses when the text does not hold the answer, and is measured against a set of questions whose answers are quoted from the law.
+
+What this repository is about is the domain:
+
+- building the corpus from the Senate's HTML, which is not published as data;
+- articles that were repealed but are still in the text;
+- amounts in UVT, a unit whose value changes every year;
+- tables published as images;
+- Spanish statutory vocabulary that a citizen does not use.
+
+The pipeline has the same shape as [enterprise-rag](https://github.com/0103juan/enterprise-rag), which is about operating one: evaluation gates in CI, traces and cost per question.
 
 It answers in Spanish; this README is in English.
 
