@@ -1,0 +1,83 @@
+name: Evaluation
+
+# The end-to-end evaluation on Gemini, paid by a Google Cloud project of its own (ci/gcp), with no key stored:
+# GitHub's token is exchanged for that project's service account, which may only call Vertex AI. It runs by
+# hand on either question set, and on pull requests that change the pipeline, on the 33 questions written by
+# hand. It fails when fewer answers than MIN_CORRECT are correct. Answers already given are served from the
+# gateway's cache, so a run that changes nothing costs nothing.
+#
+# Repository variables: GCP_PROJECT, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT (outputs of ci/gcp),
+# MIN_CORRECT. A pull request from a fork gets no token and is skipped.
+
+on:
+  workflow_dispatch:
+    inputs:
+      golden:
+        description: "hand: the 33 written by hand; generated: the ones a model wrote (golden.py)"
+        type: choice
+        options: [hand, generated]
+        default: hand
+      limit:
+        description: "Questions to run, from the top of the set"
+        default: "1000"
+  pull_request:
+    paths: [pipeline.py, retrieval.py, evaluate.py, data/golden.jsonl, uv.lock]
+
+permissions:
+  contents: read
+  id-token: write # to ask GitHub for the token Google exchanges for the service account
+
+concurrency:
+  group: evaluation
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: eval # the only subject the service account trusts
+    timeout-minutes: 90
+    env:
+      PROVIDER: vertex
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
+      FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.models
+      EVAL_BUDGET_USD: "3.00"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --locked
+
+      # The statute, its embeddings and the local models: downloaded and computed once, kept between runs.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            data/raw
+            data/articles.jsonl
+            data/meta.json
+            data/vectors-*.npy
+            .models
+          key: corpus-${{ hashFiles('ingest.py', 'retrieval.py') }}
+      - run: test -f data/articles.jsonl || uv run python ingest.py
+
+      - uses: actions/cache@v6
+        with:
+          path: .gateway/cache
+          key: gateway-${{ github.run_id }}
+          restore-keys: gateway-
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Evaluate
+        shell: bash # with pipefail, so the gate's exit code survives tee
+        run: |
+          uv run python evaluate.py --generation --golden "${{ inputs.golden || 'hand' }}" \
+            --limit "${{ inputs.limit || '1000' }}" --min-correct "${{ vars.MIN_CORRECT || '0.8' }}" 2>&1 | tee eval.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          { echo '```'; grep -v '^  ' eval.txt | tail -20; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

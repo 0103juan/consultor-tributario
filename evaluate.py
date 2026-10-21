@@ -3,6 +3,9 @@
     python evaluate.py               retrieval ablation; local models only, no API calls
     python evaluate.py --generation  end-to-end run with Claude (rewrite, answer, hallucination check)
     python evaluate.py --generation --small   the same, with the pipeline on the small model
+    PROVIDER=vertex python evaluate.py --generation   the same on Gemini (see pipeline.make_gateway)
+    python evaluate.py --generation --golden generated --limit 60   on the generated set, the first 60 questions
+    ... --min-correct 0.8   exit with an error when fewer answers than that are correct (the CI gate)
 
 Model calls go through model-gateway: a repeated run is served from .gateway/cache, every call is written
 to .gateway/ledger.jsonl, and a run stops if it spends more than BUDGET_USD.
@@ -13,21 +16,24 @@ into many chunks and only one of them holds the answer.
 """
 
 import json
+import os
 import sys
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from model_gateway import Gateway
 from pydantic import BaseModel
 
-from pipeline import ABSTAIN, answer
+from pipeline import ABSTAIN, answer, make_gateway
 from retrieval import DATA, MODES, RERANK_MODEL, Chunk, Index
 
-GOLDEN = DATA / "golden.jsonl"
+GOLDEN = DATA / "golden.jsonl"  # written by hand
+GENERATED = DATA / "golden-generated.jsonl"  # written by a model from the articles (golden.py), not reviewed
 GATEWAY = Path(__file__).parent / ".gateway"
 STAGES = ("rewrite", "generate", "judge")  # the pipeline's own calls; "grade" belongs to the evaluation
-BUDGET_USD = 1.00  # per run; the run of 2 October 2026 cost $0.66
+WORKERS = int(os.environ.get("EVAL_WORKERS", 8))  # questions in flight; 1 runs them in order, one by one
+BUDGET_USD = float(os.environ.get("EVAL_BUDGET_USD", 1.00))  # per run; the run of 2 October 2026 cost $0.66
 RERANKERS = ("BAAI/bge-reranker-base", RERANK_MODEL)
 
 
@@ -88,13 +94,19 @@ def is_correct(gateway, question: str, reference: str, candidate: str) -> bool:
 def generation_eval(gateway, index: Index, golden: list[dict]) -> dict[str, float]:
     totals = {"retrieved": 0, "cited": 0, "correct": 0, "groundedness": 0.0}
     answerable = sum(1 for row in golden if row["article"])
-    for row in golden:
+
+    def run(row: dict):
         result = answer(gateway, index, row["question"], row.get("history", ""))
-        retrieved = cited = False
         if row["article"] is None:  # out-of-scope question: the only right answer is to abstain
-            correct = result.answer == ABSTAIN
-        else:
-            correct = is_correct(gateway, row["question"], row["answer"], result.answer)
+            return result, result.answer == ABSTAIN
+        return result, is_correct(gateway, row["question"], row["answer"], result.answer)
+
+    # Several questions at a time: the model calls wait on the network. The report keeps the set's order.
+    with ThreadPoolExecutor(WORKERS) as workers:
+        outcomes = list(workers.map(run, golden))
+    for row, (result, correct) in zip(golden, outcomes):
+        retrieved = cited = False
+        if row["article"] is not None:
             retrieved = any(is_hit(chunk, row) for chunk in result.retrieved)
             cited = any(is_hit(chunk, row) for chunk in result.sources)
         totals["retrieved"] += retrieved
@@ -114,19 +126,25 @@ def generation_eval(gateway, index: Index, golden: list[dict]) -> dict[str, floa
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
-    golden =[json.loads(line) for line in GOLDEN.read_text(encoding="utf-8").splitlines()]
+    def option(name: str, default: str) -> str:
+        return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+    source = GENERATED if option("--golden", "hand") == "generated" else GOLDEN
+    golden = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()][:int(option("--limit", "100000"))]
     index = Index.load()
     if "--generation" in sys.argv:
-        import anthropic
         tier = "small" if "--small" in sys.argv else "large"  # the grader stays on the large model either way
-        gateway = Gateway(anthropic.Anthropic(), routes=dict.fromkeys(STAGES, tier),
-                          key=f"eval-{tier}-{time.strftime('%Y%m%d-%H%M%S')}", budget_usd=BUDGET_USD,
-                          ledger=GATEWAY / "ledger.jsonl", cache=GATEWAY / "cache")
-        for metric, value in generation_eval(gateway, index, golden).items():
+        gateway = make_gateway(routes=dict.fromkeys(STAGES, tier), key=f"eval-{tier}-{time.strftime('%Y%m%d-%H%M%S')}",
+                               budget_usd=BUDGET_USD, ledger=GATEWAY / "ledger.jsonl", cache=GATEWAY / "cache")
+        metrics = generation_eval(gateway, index, golden)
+        for metric, value in metrics.items():
             print(f"{metric:<22} {value:.1%}")
         print(spend(gateway.calls))
         print(f"{len(golden)} questions on the {tier} tier, {len(gateway.calls)} model calls, "
               f"${gateway.spent:.2f} (${gateway.spent / len(golden):.4f} per question)")
+        floor = float(option("--min-correct", "0"))
+        if metrics["answer correct"] < floor:  # the quality gate of the evaluation workflow
+            sys.exit(f"answer correct {metrics['answer correct']:.1%} is below {floor:.0%}")
     else:
         print(f"{len(index.chunks)} chunks from {len(index.by_article)} articles")
         print(f"{'mode':<50}{'hit@1':>8}{'hit@5':>8}{'MRR@5':>8}")
