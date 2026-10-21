@@ -30,9 +30,10 @@ def make_gateway(**options) -> Gateway:
         from google.oauth2.credentials import Credentials
         client = genai.Client(vertexai=True, project=os.environ["GOOGLE_CLOUD_PROJECT"], location="global",
                               credentials=Credentials(os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"]))
-    # Eight attempts with backoff: an evaluation sends hundreds of calls and meets the per-minute quota.
+    # Eight attempts with backoff: an evaluation sends hundreds of calls and meets the per-minute quota. Two
+    # minutes per attempt: now and then a call hangs, and without a limit it waits ten before the retry.
     return Gateway(GeminiClient(project=os.environ.get("GOOGLE_CLOUD_PROJECT"), client=client, attempts=8),
-                   tiers=GEMINI_TIERS, **options)
+                   tiers=GEMINI_TIERS, **{"timeout": 120, **options})
 
 REWRITE_SYSTEM = """Preparas consultas de búsqueda sobre el Estatuto Tributario de Colombia.
 
