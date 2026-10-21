@@ -32,7 +32,7 @@ GOLDEN = DATA / "golden.jsonl"  # written by hand
 GENERATED = DATA / "golden-generated.jsonl"  # written by a model from the articles (golden.py), not reviewed
 GATEWAY = Path(__file__).parent / ".gateway"
 STAGES = ("rewrite", "generate", "judge")  # the pipeline's own calls; "grade" belongs to the evaluation
-WORKERS = int(os.environ.get("EVAL_WORKERS", 8))  # questions in flight; 1 runs them in order, one by one
+WORKERS = int(os.environ.get("EVAL_WORKERS", 4))  # questions in flight; 1 runs them in order, one by one
 BUDGET_USD = float(os.environ.get("EVAL_BUDGET_USD", 1.00))  # per run; the run of 2 October 2026 cost $0.66
 RERANKERS = ("BAAI/bge-reranker-base", RERANK_MODEL)
 

@@ -14,4 +14,4 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [tool.uv.sources]
-model-gateway = { git = "https://github.com/0103juan/model-gateway", rev = "d4e114883412375f2daaea99d20575a348cce71b" }  # PR #21; move to v0.2.0 once tagged
+model-gateway = { git = "https://github.com/0103juan/model-gateway", rev = "2d3b43d7fe38737068bb24fb59a3a704c36c82e9" }  # PR #21; move to v0.2.0 once tagged

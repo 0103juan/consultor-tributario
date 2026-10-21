@@ -30,7 +30,8 @@ def make_gateway(**options) -> Gateway:
         from google.oauth2.credentials import Credentials
         client = genai.Client(vertexai=True, project=os.environ["GOOGLE_CLOUD_PROJECT"], location="global",
                               credentials=Credentials(os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"]))
-    return Gateway(GeminiClient(project=os.environ.get("GOOGLE_CLOUD_PROJECT"), client=client),
+    # Eight attempts with backoff: an evaluation sends hundreds of calls and meets the per-minute quota.
+    return Gateway(GeminiClient(project=os.environ.get("GOOGLE_CLOUD_PROJECT"), client=client, attempts=8),
                    tiers=GEMINI_TIERS, **options)
 
 REWRITE_SYSTEM = """Preparas consultas de búsqueda sobre el Estatuto Tributario de Colombia.
