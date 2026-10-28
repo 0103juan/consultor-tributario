@@ -31,6 +31,22 @@ IMAGE = " [TABLA O FÓRMULA PUBLICADA COMO IMAGEN: no disponible como texto] "
 UPDATED = re.compile(r"ltima actualizaci&oacute;n:\s*([^<(]+?)\s*-?\s*\(")
 
 
+def fetch(url: str, attempts: int = 4) -> bytes:
+    """One page. The Senate's server sometimes drops a connection (it did to a CI run), so a dropped or timed-out
+    request is tried again after 5, 10 and 20 seconds; an HTTP error such as 404 is an answer and is not retried."""
+    request = urllib.request.Request(url, headers={"User-Agent": "consultor-tributario (research)"})
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return response.read()
+        except urllib.error.HTTPError:
+            raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(5 * 2 ** attempt)
+
+
 def download() -> list[Path]:
     """Fetch estatuto_tributario.html, _pr001.html, _pr002.html... until the server says there are no more."""
     RAW.mkdir(parents=True, exist_ok=True)
@@ -39,10 +55,8 @@ def download() -> list[Path]:
         name = "estatuto_tributario.html" if n == 0 else f"estatuto_tributario_pr{n:03d}.html"
         path = RAW / name
         if not path.exists():
-            request = urllib.request.Request(BASE + name, headers={"User-Agent": "consultor-tributario (research)"})
             try:
-                with urllib.request.urlopen(request, timeout=60) as response:
-                    path.write_bytes(response.read())
+                path.write_bytes(fetch(BASE + name))
             except urllib.error.HTTPError as e:
                 if e.code == 404:
                     break

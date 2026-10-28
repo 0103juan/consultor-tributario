@@ -147,6 +147,41 @@ def test_each_stage_names_its_task_and_the_evaluation_reports_spend_per_task(tmp
     assert report[1].split() == ["rewrite", "2", "1", "2000", "200", "0.0015", "claude-haiku-4-5"]
 
 
+def test_a_dropped_connection_is_retried_and_a_404_is_not(monkeypatch):
+    class Page:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"<html>"
+
+    replies = iter([ConnectionResetError(104, "reset"), TimeoutError(), Page()])
+
+    def urlopen(request, timeout):
+        reply = next(replies)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ingest.time, "sleep", lambda seconds: None)
+    assert ingest.fetch("http://x/page.html") == b"<html>"
+
+    calls = []
+
+    def missing(request, timeout):
+        calls.append(1)
+        raise ingest.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(ingest.urllib.request, "urlopen", missing)
+    with pytest.raises(ingest.urllib.error.HTTPError):
+        ingest.fetch("http://x/page.html")
+    assert len(calls) == 1
+
+
 def test_a_run_that_fails_keeps_what_it_scored_and_resume_asks_only_the_rest(tmp_path, monkeypatch):
     golden = [{"question": q, "article": "639", "answer": "10 UVT", "evidence": "x"} for q in ("a", "b", "c")]
     asked, broken = [], {"b"}
