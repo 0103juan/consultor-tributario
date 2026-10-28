@@ -4,17 +4,36 @@
 """
 
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
 
 import anthropic
-from model_gateway import Gateway
+from model_gateway import GEMINI_TIERS, Gateway, GeminiClient
 from pydantic import BaseModel
 
 from retrieval import DATA, Chunk, Index
 
 ABSTAIN = "No lo sé con base en el Estatuto Tributario."
+
+
+def make_gateway(**options) -> Gateway:
+    """The gateway the pipeline runs on. PROVIDER=vertex: Gemini on Vertex AI in GOOGLE_CLOUD_PROJECT, with the
+    machine's Google credentials or, when set, the access token in GOOGLE_OAUTH_ACCESS_TOKEN. Otherwise Claude,
+    with ANTHROPIC_API_KEY."""
+    if os.environ.get("PROVIDER") != "vertex":
+        return Gateway(anthropic.Anthropic(), **options)
+    client = None
+    if os.environ.get("GOOGLE_OAUTH_ACCESS_TOKEN"):
+        from google import genai
+        from google.oauth2.credentials import Credentials
+        client = genai.Client(vertexai=True, project=os.environ["GOOGLE_CLOUD_PROJECT"], location="global",
+                              credentials=Credentials(os.environ["GOOGLE_OAUTH_ACCESS_TOKEN"]))
+    # Eight attempts with backoff: an evaluation sends hundreds of calls and meets the per-minute quota. Two
+    # minutes per attempt: now and then a call hangs, and without a limit it waits ten before the retry.
+    return Gateway(GeminiClient(project=os.environ.get("GOOGLE_CLOUD_PROJECT"), client=client, attempts=8),
+                   tiers=GEMINI_TIERS, **{"timeout": 120, **options})
 
 REWRITE_SYSTEM = """Preparas consultas de búsqueda sobre el Estatuto Tributario de Colombia.
 
@@ -138,7 +157,7 @@ def answer(gateway, index: Index, question: str, history: str = "") -> Result:
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")  # piped output on Windows defaults to cp1252, which has no "≈"
     meta =json.loads((DATA / "meta.json").read_text(encoding="utf-8"))
-    result = answer(Gateway(anthropic.Anthropic()), Index.load(), " ".join(sys.argv[1:]))
+    result = answer(make_gateway(), Index.load(), " ".join(sys.argv[1:]))
     print(result.answer, "\n")
     for source in result.sources:
         print(f"  fuente: {source.title[:80]}\n          {source.url}")
