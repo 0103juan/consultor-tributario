@@ -1,12 +1,14 @@
 """Fast checks with no model downloads and no API calls. `python evaluate.py` is the retrieval-quality check."""
 
 import json
+from types import SimpleNamespace
 
 import anthropic
 import httpx2
 import pytest
 from model_gateway import Gateway
 
+import evaluate
 import ingest
 import pipeline
 from evaluate import plain, spend
@@ -143,6 +145,34 @@ def test_each_stage_names_its_task_and_the_evaluation_reports_spend_per_task(tmp
     assert gateway.spent == pytest.approx((1000 * 1 + 100 * 5 + 2 * (1000 * 2 + 100 * 10)) / 1e6)
     report = spend(gateway.calls).splitlines()
     assert report[1].split() == ["rewrite", "2", "1", "2000", "200", "0.0015", "claude-haiku-4-5"]
+
+
+def test_a_run_that_fails_keeps_what_it_scored_and_resume_asks_only_the_rest(tmp_path, monkeypatch):
+    golden = [{"question": q, "article": "639", "answer": "10 UVT", "evidence": "x"} for q in ("a", "b", "c")]
+    asked, broken = [], {"b"}
+
+    def fake_answer(gateway, index, question, history=""):
+        asked.append(question)
+        if question in broken:
+            raise TimeoutError("hung call")
+        return SimpleNamespace(answer="10 UVT", retrieved=[], sources=[], unsupported=[], groundedness=1.0)
+
+    monkeypatch.setattr(evaluate, "answer", fake_answer)
+    monkeypatch.setattr(evaluate, "is_correct", lambda gateway, q, ref, candidate: q != "c")
+    saved = tmp_path / "runs" / "golden-large.jsonl"
+
+    with pytest.raises(RuntimeError, match="1 of 3 questions failed"):
+        evaluate.generation_eval(None, None, golden, saved)
+    assert len(saved.read_text(encoding="utf-8").splitlines()) == 2
+
+    broken.clear()
+    asked.clear()
+    metrics = evaluate.generation_eval(None, None, golden, saved, resume=True)
+
+    assert asked == ["b"]
+    assert metrics["answer correct"] == pytest.approx(2 / 3)
+    evaluate.generation_eval(None, None, golden[:1], saved)  # without --resume a run starts over
+    assert len(saved.read_text(encoding="utf-8").splitlines()) == 1
 
 
 @pytest.mark.skipif(not (DATA / "articles.jsonl").exists(), reason="run `python ingest.py` first")

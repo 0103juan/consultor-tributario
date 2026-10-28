@@ -6,6 +6,7 @@
     PROVIDER=vertex python evaluate.py --generation   the same on Gemini (see pipeline.make_gateway)
     python evaluate.py --generation --golden generated --limit 60   on the generated set, the first 60 questions
     ... --min-correct 0.8   exit with an error when fewer answers than that are correct (the CI gate)
+    ... --resume   keep the questions a previous run already scored (.gateway/runs/<set>-<tier>.jsonl), ask the rest
 
 Model calls go through model-gateway: a repeated run is served from .gateway/cache, every call is written
 to .gateway/ledger.jsonl, and a run stops if it spends more than BUDGET_USD.
@@ -20,7 +21,7 @@ import os
 import sys
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -91,31 +92,63 @@ def is_correct(gateway, question: str, reference: str, candidate: str) -> bool:
     return bool(response.parsed_output and response.parsed_output.correct)
 
 
-def generation_eval(gateway, index: Index, golden: list[dict]) -> dict[str, float]:
+def row_key(row: dict) -> str:
+    return f"{row['question']}\n{row.get('history', '')}"
+
+
+def generation_eval(gateway, index: Index, golden: list[dict], saved: Path | None = None,
+                    resume: bool = False) -> dict[str, float]:
+    """Scores every question. Each finished question is appended to `saved` at once, so a run that dies keeps
+    what it did; with `resume`, the questions already in `saved` are not asked again."""
     totals = {"retrieved": 0, "cited": 0, "correct": 0, "groundedness": 0.0}
     answerable = sum(1 for row in golden if row["article"])
+    done = {}
+    if saved and resume and saved.exists():
+        done = {record["key"]: record for record in map(json.loads, saved.read_text(encoding="utf-8").splitlines())}
+    elif saved:
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text("", encoding="utf-8")
 
-    def run(row: dict):
+    def run(row: dict) -> dict:
         result = answer(gateway, index, row["question"], row.get("history", ""))
-        if row["article"] is None:  # out-of-scope question: the only right answer is to abstain
-            return result, result.answer == ABSTAIN
-        return result, is_correct(gateway, row["question"], row["answer"], result.answer)
-
-    # Several questions at a time: the model calls wait on the network. The report keeps the set's order.
-    with ThreadPoolExecutor(WORKERS) as workers:
-        outcomes = list(workers.map(run, golden))
-    for row, (result, correct) in zip(golden, outcomes):
         retrieved = cited = False
-        if row["article"] is not None:
+        if row["article"] is None:  # out-of-scope question: the only right answer is to abstain
+            correct = result.answer == ABSTAIN
+        else:
+            correct = is_correct(gateway, row["question"], row["answer"], result.answer)
             retrieved = any(is_hit(chunk, row) for chunk in result.retrieved)
             cited = any(is_hit(chunk, row) for chunk in result.sources)
-        totals["retrieved"] += retrieved
-        totals["cited"] += cited
-        totals["correct"] += correct
-        totals["groundedness"] += result.groundedness
-        if not correct or result.unsupported:
-            print(f"  FAIL {row['question']!r}\n       -> {result.answer}\n       evidence retrieved: {retrieved}, "
-                  f"articles: {[c.article for c in result.retrieved]}\n       unsupported: {result.unsupported}")
+        return {"key": row_key(row), "answer": result.answer, "articles": [c.article for c in result.retrieved],
+                "unsupported": result.unsupported, "groundedness": result.groundedness,
+                "retrieved": retrieved, "cited": cited, "correct": correct}
+
+    # Several questions at a time: the model calls wait on the network. The report keeps the set's order.
+    failed = []
+    with ThreadPoolExecutor(WORKERS) as workers:
+        pending = {workers.submit(run, row): row for row in golden if row_key(row) not in done}
+        for future in as_completed(pending):
+            try:
+                record = future.result()
+            except Exception as error:  # one question that fails after the gateway's retries must not sink the run
+                failed.append(pending[future]["question"])
+                print(f"  ERROR {pending[future]['question']!r}: {error!r}", file=sys.stderr)
+                continue
+            done[record["key"]] = record
+            if saved:
+                with saved.open("a", encoding="utf-8") as out:
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
+    if failed:
+        raise RuntimeError(f"{len(failed)} of {len(golden)} questions failed; the rest are saved in {saved}, "
+                           "run again with --resume to ask only the missing ones")
+    for row in golden:
+        record = done[row_key(row)]
+        totals["retrieved"] += record["retrieved"]
+        totals["cited"] += record["cited"]
+        totals["correct"] += record["correct"]
+        totals["groundedness"] += record["groundedness"]
+        if not record["correct"] or record["unsupported"]:
+            print(f"  FAIL {row['question']!r}\n       -> {record['answer']}\n       evidence retrieved: "
+                  f"{record['retrieved']}, articles: {record['articles']}\n       unsupported: {record['unsupported']}")
     return {
         "evidence retrieved": totals["retrieved"] / answerable,
         "evidence cited": totals["cited"] / answerable,
@@ -136,7 +169,8 @@ if __name__ == "__main__":
         tier = "small" if "--small" in sys.argv else "large"  # the grader stays on the large model either way
         gateway = make_gateway(routes=dict.fromkeys(STAGES, tier), key=f"eval-{tier}-{time.strftime('%Y%m%d-%H%M%S')}",
                                budget_usd=BUDGET_USD, ledger=GATEWAY / "ledger.jsonl", cache=GATEWAY / "cache")
-        metrics = generation_eval(gateway, index, golden)
+        saved = GATEWAY / "runs" / f"{source.stem}-{tier}.jsonl"
+        metrics = generation_eval(gateway, index, golden, saved, resume="--resume" in sys.argv)
         for metric, value in metrics.items():
             print(f"{metric:<22} {value:.1%}")
         print(spend(gateway.calls))
