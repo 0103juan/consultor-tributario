@@ -156,16 +156,43 @@ Cost and latency per stage, from the gateway's ledger (the latency is the median
 
 What this supports is moving `rewrite` to the small model and keeping `generate` and `judge` on the large one until the abstention check and the judge are fixed. That mixed configuration has not been run, so every stage still defaults to the large model. The three follow-ups are issues [#2](https://github.com/0103juan/consultor-tributario/issues/2) (the abstention check), [#3](https://github.com/0103juan/consultor-tributario/issues/3) (the small judge) and [#4](https://github.com/0103juan/consultor-tributario/issues/4) (the mixed run).
 
+### Gemini, and 270 generated questions
+
+Thirty-three questions cannot separate two configurations, so `golden.py` had a model write more. For each of 270 sampled articles, Gemini wrote the question a taxpayer would ask, the shortest passage that answers it (kept only if it is verbatim in one chunk of the article) and a reference answer. Nobody has read these rows. Writing them cost $1.02.
+
+The whole pipeline, grader included, ran on `gemini-3.5-flash` on Vertex AI (`PROVIDER=vertex`), between 20 and 28 October 2026:
+
+| | 33 hand-written | 270 generated |
+|---|---|---|
+| Answer correct | 29 of 33 (87.9%) | 258 of 270 (95.6%) |
+| Groundedness, according to the judge | 100% | 99.4% |
+| Evidence chunk retrieved, after rewriting | 26 of 32 (81.2%) | 264 of 270 (97.8%) |
+| Evidence chunk cited | 26 of 32 (81.2%) | 262 of 270 (97.0%) |
+| Cost | $0.90, $0.027 per question | $6.97, $0.026 per question |
+
+- **The generated set is easier, so its 95.6% is not the system's accuracy.** Retrieval is the tell: 97.8% against 81.2%. The model wrote each question with the article in front of it, and its wording stays close to the statute's even when told not to copy it. Real users say "multa" and "4x1000"; the hand-written set, with its 87.9%, is still the number to quote.
+- **Two of the twelve misses are wrong references, not wrong answers.** I checked them against the statute. The reference for the home exclusion from the wealth tax says 13,500 UVT, taken from article 295-2, which applied to 2020 and 2021; the article in force, 295-3, says 12,000, and the answer gave both with their years. The reference for donations to political parties says they are deductible (article 125-4); article 257 says they are not and give a 25% discount instead, which is what the answer said. Two more misses are close calls where the answer added a second article the reference did not mention (260-1 next to 451 on subordinate companies, 834 next to 836 on appeals against a seizure order).
+- **Five misses are abstentions**, three of them with the evidence not retrieved, like the four misses of the Sonnet run on the hand-written set. The other two retrieved the evidence and still declined.
+- **The judge is the expensive stage**: $3.76 of the $6.97, because it writes the most output. On the hand-written set it is also why Gemini cost $0.90 against Sonnet's $0.66.
+- **The run outlasted the API more than once.** A few calls took up to 20 minutes to come back, and several runs died before the end. The gateway now gives each call two minutes and up to eight attempts, and `evaluate.py` saves every scored question as it finishes, so a run that dies resumes with `--resume`. The final run on 28 October asked 27 questions live and served the rest from the gateway's cache; the cost above is the sum of every live call across the attempts.
+
+What it shows is that a set this size is now cheap to run, about seven dollars of cloud credit, and that its value depends on reviewing the rows. Before the generated set can gate anything, its twelve misses and a sample of its passes need a human read.
+
 ## Run it
 
 ```bash
 uv sync
 uv run python ingest.py        # about a minute; writes data/articles.jsonl
-uv run pytest                  # 12 tests, no model downloads, no API key
+uv run pytest                  # 13 tests, no model downloads, no API key
 uv run python evaluate.py      # retrieval ablation; downloads about 2.4 GB of ONNX models once
 uv run python pipeline.py "¿Qué porcentaje del salario es renta exenta?"   # needs ANTHROPIC_API_KEY
 uv run python evaluate.py --generation           # end-to-end run on the large model, $0.66
 uv run python evaluate.py --generation --small   # the same with the pipeline on Claude Haiku 4.5, $0.27
+
+# Gemini on Vertex AI instead of Claude, on the 270 generated questions (about $7; EVAL_BUDGET_USD defaults to $1)
+PROVIDER=vertex GOOGLE_CLOUD_PROJECT=<project> EVAL_BUDGET_USD=8 uv run python evaluate.py --generation --golden generated
+# a run that stopped: ask only the questions not yet in .gateway/runs/
+... uv run python evaluate.py --generation --golden generated --resume
 ```
 
 Model calls go through [model-gateway](https://github.com/0103juan/model-gateway). Each stage names its task
@@ -202,6 +229,7 @@ retrieval.py       chunking, BM25, RRF, dense search, article lookup, reranking,
 pipeline.py        rewrite, generate, judge, and answer() which ties them together
 evaluate.py        retrieval ablation and end-to-end evaluation with token and cost accounting
 data/golden.jsonl  questions, the article and evidence quote for each, and reference answers
+golden.py          writes data/golden-generated.jsonl, 270 questions a model wrote from the articles
 test_consultor.py  parser, chunking and pipeline tests
 ```
 
