@@ -48,8 +48,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --locked
 
-      # The statute, its embeddings and the local models: downloaded and computed once, kept between runs.
-      - uses: actions/cache@v6
+      # The statute, its embeddings and the local models: downloaded and computed once, kept between runs. Restored
+      # here and saved at the end with `if: always()`: actions/cache saves only when the job succeeds, so a failing
+      # run used to download everything again and lose the answers it had paid for.
+      - uses: actions/cache/restore@v6
+        id: corpus
         with:
           path: |
             data/raw
@@ -60,7 +63,7 @@ jobs:
           key: corpus-${{ hashFiles('ingest.py', 'retrieval.py') }}
       - run: test -f data/articles.jsonl || uv run python ingest.py
 
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: .gateway/cache
           key: gateway-${{ github.run_id }}
@@ -81,3 +84,19 @@ jobs:
         if: always()
         run: |
           { echo '```'; grep -v '^  ' eval.txt | tail -20; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/cache/save@v6
+        if: always() && steps.corpus.outputs.cache-hit != 'true' && hashFiles('data/articles.jsonl') != ''
+        with:
+          path: |
+            data/raw
+            data/articles.jsonl
+            data/meta.json
+            data/vectors-*.npy
+            .models
+          key: corpus-${{ hashFiles('ingest.py', 'retrieval.py') }}
+      - uses: actions/cache/save@v6
+        if: always() && hashFiles('.gateway/cache/*') != ''
+        with:
+          path: .gateway/cache
+          key: gateway-${{ github.run_id }}

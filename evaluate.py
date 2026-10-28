@@ -27,7 +27,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from pipeline import ABSTAIN, answer, make_gateway
-from retrieval import DATA, MODES, RERANK_MODEL, Chunk, Index
+from retrieval import DATA, MODES, RERANK_MODEL, Chunk, Index, embedder, reranker
 
 GOLDEN = DATA / "golden.jsonl"  # written by hand
 GENERATED = DATA / "golden-generated.jsonl"  # written by a model from the articles (golden.py), not reviewed
@@ -166,7 +166,10 @@ if __name__ == "__main__":
     golden = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()][:int(option("--limit", "100000"))]
     index = Index.load()
     if "--generation" in sys.argv:
-        tier = "small" if "--small" in sys.argv else "large"  # the grader stays on the large model either way
+        # Load the models before the threads start: lru_cache does not lock, so four threads arriving cold would
+        # each build their own copy, four times the memory (the CI run of 28 October was killed while they loaded).
+        embedder(), reranker()
+        tier ="small" if "--small" in sys.argv else "large"  # the grader stays on the large model either way
         gateway = make_gateway(routes=dict.fromkeys(STAGES, tier), key=f"eval-{tier}-{time.strftime('%Y%m%d-%H%M%S')}",
                                budget_usd=BUDGET_USD, ledger=GATEWAY / "ledger.jsonl", cache=GATEWAY / "cache")
         saved = GATEWAY / "runs" / f"{source.stem}-{tier}.jsonl"

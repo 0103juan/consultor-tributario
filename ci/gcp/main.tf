@@ -20,9 +20,12 @@ variable "project_id" {
 }
 
 variable "repository" {
-  description = "OWNER/REPO whose eval environment may run the evaluation."
+  # This repository sends immutable subject claims, which carry the owner's and the repository's numeric ids, so a
+  # deleted and re-created repository of the same name is not trusted. `gh api repos/OWNER/REPO/actions/oidc/
+  # customization/sub` prints the prefix; with the plain OWNER/REPO the token is rejected by the attribute condition.
+  description = "The repository as its token subject names it: OWNER@ID/REPO@ID, or OWNER/REPO without immutable claims."
   type        = string
-  default     = "0103juan/consultor-tributario"
+  default     = "0103juan@227747718/consultor-tributario@1400811157"
 }
 
 variable "billing_account" {

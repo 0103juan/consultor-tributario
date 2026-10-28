@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import threading
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
@@ -17,6 +18,10 @@ EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # Chosen by measurement (see README). Its licence is CC BY-NC 4.0: fine for a portfolio, not for a product.
 RERANK_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
 MODES = ("dense", "hybrid", "hybrid+rerank")
+# One rerank at a time, measured on 28 October 2026: one rerank of 50 candidates peaks at 8.3 GB and four in
+# parallel at 18.1 GB, which got the 16 GB CI runner killed. In parallel they were barely faster (8.9 s against
+# 11 s a question), since ONNX already uses every core; the model calls around them still run in parallel.
+RERANK_LOCK = threading.Lock()
 ARTICLE_REF = re.compile(r"\bart(?:[ií]culos?|s?\.)\s*(\d+(?:-\d+)?)", re.I)
 
 STOPWORDS = frozenset(
@@ -142,6 +147,7 @@ class Index:
                 rankings.append(self._cited(query))
         order = rrf([r for r in rankings if r])[:pool]
         if mode == "hybrid+rerank":
-            scores = list(reranker(rerank_model).rerank(queries[0], [self.chunks[i].text for i in order]))
+            with RERANK_LOCK:
+                scores = list(reranker(rerank_model).rerank(queries[0], [self.chunks[i].text for i in order]))
             order = [i for _, i in sorted(zip(scores, order), reverse=True)]
         return [self.chunks[i] for i in order[:k]]

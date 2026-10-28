@@ -183,7 +183,7 @@ What it shows is that a set this size is now cheap to run, about seven dollars o
 ```bash
 uv sync
 uv run python ingest.py        # about a minute; writes data/articles.jsonl
-uv run pytest                  # 13 tests, no model downloads, no API key
+uv run pytest                  # 14 tests, no model downloads, no API key
 uv run python evaluate.py      # retrieval ablation; downloads about 2.4 GB of ONNX models once
 uv run python pipeline.py "¿Qué porcentaje del salario es renta exenta?"   # needs ANTHROPIC_API_KEY
 uv run python evaluate.py --generation           # end-to-end run on the large model, $0.66
